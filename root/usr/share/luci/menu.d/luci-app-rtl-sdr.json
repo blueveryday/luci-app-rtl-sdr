@@ -1,0 +1,28 @@
+{
+	"admin/services/rtl-sdr": {
+		"title": "RTL-SDR TCP",
+		"order": 85,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-rtl-sdr" ]
+		}
+	},
+	"admin/services/rtl-sdr/status": {
+		"title": "服务状态",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "rtl-sdr/status"
+		}
+	},
+	"admin/services/rtl-sdr/config": {
+		"title": "参数配置",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "rtl-sdr/config"
+		}
+	}
+}

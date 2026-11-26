@@ -1,0 +1,23 @@
+{
+	"luci-app-rtl-sdr": {
+		"description": "Manage official rtl_tcp service and UCI configuration",
+		"read": {
+			"uci": [ "rtl_tcp" ],
+			"ubus": {
+				"service": [ "list" ]
+			},
+			"file": {
+				"/etc/init.d/rtl-sdr": [ "exec" ],
+				"/usr/bin/rtl_tcp": [ "exec" ],
+				"/usr/bin/logread": [ "exec" ],
+				"/bin/ubus": [ "exec" ]
+			}
+		},
+		"write": {
+			"uci": [ "rtl_tcp" ],
+			"file": {
+				"/etc/init.d/rtl-sdr": [ "exec" ]
+			}
+		}
+	}
+}
