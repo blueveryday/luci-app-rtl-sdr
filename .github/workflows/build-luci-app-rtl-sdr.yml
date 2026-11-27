@@ -1,0 +1,202 @@
+name: Build luci-app-rtl-sdr (Release SDK)
+
+"on":
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      apk_version:
+        description: "OpenWrt release version for APK SDK"
+        required: true
+        default: "25.12.6"
+      ipk_version:
+        description: "OpenWrt release version for IPK SDK"
+        required: true
+        default: "24.10.8"
+      target_arch:
+        description: "Target/subtarget (leave empty to build all matrix targets)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ===== APK (25.12) =====
+          - { pkg_format: apk, default_ver: "25.12.6", target_arch: "x86/64", arch_name: "x86_64" }
+          - { pkg_format: apk, default_ver: "25.12.6", target_arch: "mediatek/filogic", arch_name: "aarch64_cortex-a53" }
+          - { pkg_format: apk, default_ver: "25.12.6", target_arch: "armsr/armv8", arch_name: "aarch64_generic" }
+          - { pkg_format: apk, default_ver: "25.12.6", target_arch: "ipq40xx/generic", arch_name: "arm_cortex-a7_neon-vfpv4" }
+          - { pkg_format: apk, default_ver: "25.12.6", target_arch: "ramips/mt7621", arch_name: "mipsel_24kc" }
+          - { pkg_format: apk, default_ver: "25.12.6", target_arch: "ath79/generic", arch_name: "mips_24kc" }
+          - { pkg_format: apk, default_ver: "25.12.6", target_arch: "armsr/armv7", arch_name: "arm_cortex-a15_neon-vfpv4" }
+
+          # ===== IPK (24.10) =====
+          - { pkg_format: ipk, default_ver: "24.10.8", target_arch: "x86/64", arch_name: "x86_64" }
+          - { pkg_format: ipk, default_ver: "24.10.8", target_arch: "mediatek/filogic", arch_name: "aarch64_cortex-a53" }
+          - { pkg_format: ipk, default_ver: "24.10.8", target_arch: "armsr/armv8", arch_name: "aarch64_generic" }
+          - { pkg_format: ipk, default_ver: "24.10.8", target_arch: "ipq40xx/generic", arch_name: "arm_cortex-a7_neon-vfpv4" }
+          - { pkg_format: ipk, default_ver: "24.10.8", target_arch: "ramips/mt7621", arch_name: "mipsel_24kc" }
+          - { pkg_format: ipk, default_ver: "24.10.8", target_arch: "ath79/generic", arch_name: "mips_24kc" }
+          - { pkg_format: ipk, default_ver: "24.10.8", target_arch: "armsr/armv7", arch_name: "arm_cortex-a15_neon-vfpv4" }
+
+    steps:
+      - name: Checkout plugin repository
+        uses: actions/checkout@v4
+        with:
+          path: plugin-src
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libncurses5-dev zlib1g-dev gawk git gettext \
+            file wget curl ca-certificates unzip xz-utils zstd jq
+
+      - name: Download and extract OpenWrt release SDK
+        id: sdk
+        env:
+          APK_VER: ${{ inputs.apk_version || matrix.default_ver }}
+          IPK_VER: ${{ inputs.ipk_version || matrix.default_ver }}
+          REQ_TARGET: ${{ inputs.target_arch || matrix.target_arch }}
+          ARCH_NAME: ${{ matrix.arch_name }}
+        run: |
+          if [ "${{ matrix.pkg_format }}" = "apk" ]; then
+            VER="$APK_VER"
+          else
+            VER="$IPK_VER"
+          fi
+          TARGET="$REQ_TARGET"
+          echo "Building for VER=${VER}, TARGET=${TARGET} (${ARCH_NAME})"
+
+          BASE_URL="https://downloads.openwrt.org/releases/${VER}/targets/${TARGET}"
+          echo "Using BASE_URL=${BASE_URL}"
+
+          mkdir -p sdk-work
+          cd sdk-work
+          curl -fsSL "${BASE_URL}/sha256sums" -o sha256sums
+
+          SDK_TAR=$(grep -E 'openwrt-sdk-.*\.tar\.(xz|zst)' sha256sums | head -n1 | awk '{print $2}' | tr -d '*')
+          [ -n "$SDK_TAR" ] || { echo "SDK archive not found at ${BASE_URL}"; exit 1; }
+
+          CHECK_LINE=$(awk -v f="$SDK_TAR" '$2 == f || $2 == "*"f' sha256sums)
+          [ -n "$CHECK_LINE" ] || { echo "Checksum line for $SDK_TAR not found"; exit 1; }
+
+          curl -fsSL "${BASE_URL}/${SDK_TAR}" -o "${SDK_TAR}"
+          echo "$CHECK_LINE" | sha256sum -c -
+
+          tar -xf "${SDK_TAR}"
+          SDK_DIR=$(find . -maxdepth 1 -type d -name "openwrt-sdk-*" | head -n1)
+          [ -n "$SDK_DIR" ] || { echo "SDK directory not found"; exit 1; }
+          echo "sdk_dir=$(pwd)/${SDK_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Update all feeds in SDK
+        working-directory: ${{ steps.sdk.outputs.sdk_dir }}
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Link luci-app-rtl-sdr into SDK package tree
+        run: |
+          if [ -f "plugin-src/Makefile" ]; then
+            SRC_DIR="$(pwd)/plugin-src"
+          elif [ -d "plugin-src/luci-app-rtl-sdr" ]; then
+            SRC_DIR="$(pwd)/plugin-src/luci-app-rtl-sdr"
+          else
+            echo "Cannot find luci-app-rtl-sdr Makefile"
+            exit 1
+          fi
+          ln -sfn "$SRC_DIR" "${{ steps.sdk.outputs.sdk_dir }}/package/luci-app-rtl-sdr"
+
+      - name: Compile luci-app-rtl-sdr (automatic dependency resolution)
+        working-directory: ${{ steps.sdk.outputs.sdk_dir }}
+        run: |
+          make defconfig
+          make package/luci-app-rtl-sdr/download V=s
+          make package/luci-app-rtl-sdr/compile -j1 V=s
+
+      - name: Collect built packages (${{ matrix.pkg_format }} / ${{ matrix.arch_name }})
+        if: success()
+        run: |
+          mkdir -p dist
+          SDK_DIR="${{ steps.sdk.outputs.sdk_dir }}"
+          if [ "${{ matrix.pkg_format }}" = "apk" ]; then
+            find "${SDK_DIR}/bin" -type f \( -name "*rtl-sdr*.apk" -o -name "*rtl_tcp*.apk" \) -exec cp -v {} dist/ \;
+          else
+            find "${SDK_DIR}/bin" -type f \( -name "*rtl-sdr*.ipk" -o -name "*rtl_tcp*.ipk" \) -exec cp -v {} dist/ \;
+          fi
+          ls -lh dist/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-rtl-sdr-${{ matrix.pkg_format }}-${{ matrix.arch_name }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Show collected files
+        run: |
+          echo "Total files: $(find dist -type f | wc -l)"
+          ls -lh dist/
+
+      - name: Delete all existing releases and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          echo "=== 获取现有 release 列表 ==="
+          RELEASES=$(gh release list --limit 200 --json tagName -q '.[].tagName' || true)
+          if [ -z "$RELEASES" ]; then
+            echo "No existing releases found."
+          else
+            echo "$RELEASES" | while read -r tag; do
+              [ -z "$tag" ] && continue
+              echo "Deleting release and tag: $tag"
+              gh release delete "$tag" --yes --cleanup-tag || true
+            done
+          fi
+          echo "=== 清理残留 tag ==="
+          gh api repos/${{ github.repository }}/git/refs/tags --paginate -q '.[].ref' 2>/dev/null \
+            | sed 's#refs/tags/##' \
+            | while read -r tag; do
+                [ -z "$tag" ] && continue
+                echo "Deleting leftover tag: $tag"
+                gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/$tag" || true
+              done
+
+      - name: Prepare release tag and name
+        id: release_meta
+        run: |
+          TAG="build-${{ github.run_number }}-${{ github.run_attempt }}"
+          REL_NAME="luci-app-rtl-sdr build #${{ github.run_number }} (multi-arch)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "rel_name=$REL_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          name: ${{ steps.release_meta.outputs.rel_name }}
+          files: dist/*
+          draft: false
+          prerelease: false
+          make_latest: true
