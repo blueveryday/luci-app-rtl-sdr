@@ -40,7 +40,7 @@ return view.extend({
 		var logsText = rawLogs.slice(-80).join('\n') || _('暂无日志');
 
 		function run(action) {
-			return fs.exec('/etc/init.d/rtl_tcp', [ action ]).then(function(res) {
+			return fs.exec('/etc/init.d/rtl-sdr', [ action ]).then(function(res) {
 				if (res.code !== 0) {
 					ui.addNotification(null, E('p', _('操作失败：') + action + '\n' + (res.stderr || res.stdout || '')));
 				} else {

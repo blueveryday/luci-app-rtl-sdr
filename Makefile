@@ -28,6 +28,9 @@ define Build/Compile
 endef
 
 define Package/luci-app-rtl-sdr/install
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/usb
+	$(INSTALL_BIN) ./root/etc/hotplug.d/usb/90-rtl-sdr $(1)/etc/hotplug.d/usb/90-rtl-sdr
+
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./root/etc/init.d/rtl-sdr $(1)/etc/init.d/rtl-sdr
 

@@ -1,0 +1,10 @@
+#!/bin/sh
+
+[ "$ACTION" = "add" ] || exit 0
+[ -x /etc/init.d/rtl-sdr ] || exit 0
+
+disabled=$(uci -q get rtl_tcp.main.disabled)
+[ "$disabled" = "1" ] && exit 0
+
+logger -t rtl-sdr-hotplug "USB device added ($DEVPATH), restarting rtl-sdr"
+/etc/init.d/rtl-sdr restart >/dev/null 2>&1 || true
